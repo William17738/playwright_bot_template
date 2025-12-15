@@ -48,7 +48,16 @@ def execute_action_a(page, recovery_manager=None):
     return False
 ```
 
-### 4. Run
+### 4. Try the Demo First
+
+```bash
+# Run the demo to see how it works (3 minutes)
+python demo_strategy.py
+```
+
+This demo uses httpbin.org to demonstrate the state machine pattern.
+
+### 5. Run Your Bot
 
 ```bash
 python strategy_bot.py
@@ -58,12 +67,36 @@ python strategy_bot.py
 
 ```
 ├── strategy_bot.py    # Main entry point - implement your logic here
+├── demo_strategy.py   # Working demo using httpbin.org
 ├── bot_core.py        # Core framework utilities
 ├── proxy_helper.py    # Network health management
 ├── .env.example       # Environment variable template
 ├── requirements.txt   # Python dependencies
-└── ARCHITECTURE.md    # Detailed architecture documentation
+├── ARCHITECTURE.md    # Detailed architecture documentation
+└── PROXY_API.md       # Proxy API contract documentation
 ```
+
+## Implementation Checklist
+
+When building your bot, implement these interfaces:
+
+### Required
+
+- [ ] **`BotState` enum** - Define all possible states (ONLINE, OFFLINE, etc.)
+- [ ] **`detect_state(page)`** - Return current state based on page elements
+- [ ] **`execute_action_*(page)`** - At least one action function
+
+### Recommended
+
+- [ ] **`run_strategy(page, recovery_manager)`** - Main decision logic
+- [ ] **`get_wait_time()`** - Custom wait time logic (or use default)
+- [ ] **`human_delay()`** - Custom delay logic (or use default)
+
+### Optional
+
+- [ ] **`on_recovery(level, error)`** - Hook called after recovery attempt
+- [ ] **`on_state_change(old, new)`** - Hook called on state transitions
+- [ ] **Custom email alerts** - Override `send_alert_email()` if needed
 
 ## Configuration
 
@@ -99,6 +132,8 @@ The framework implements automatic error recovery:
 - Health status classification (Excellent/Healthy/Degraded/Unhealthy)
 - Automatic node switching on failure
 - Optional subscription config updates
+
+See [PROXY_API.md](PROXY_API.md) for detailed API contract documentation.
 
 ## Remote Control
 

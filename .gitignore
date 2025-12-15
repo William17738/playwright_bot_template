@@ -1,5 +1,6 @@
 # Strategy Bot Runtime Files
 bot_log.txt
+demo_log.txt
 server_log.txt
 guardian_log.txt
 bot_error.log
