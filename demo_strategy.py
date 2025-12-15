@@ -1,11 +1,10 @@
 """
 Demo Strategy - Minimal Working Example
-演示如何使用状态机模式构建自动化机器人
 
 This demo uses httpbin.org to demonstrate:
-- State detection (检测页面状态)
-- Action execution (执行操作)
-- Recovery handling (错误恢复)
+- State detection
+- Action execution
+- Recovery handling
 
 Run: python demo_strategy.py
 """
@@ -35,29 +34,28 @@ TARGET_URL = "https://httpbin.org/"
 LOG_FILE = "demo_log.txt"
 
 # =============================================================================
-# State Definition (状态定义)
+# State Definition
 # =============================================================================
 
 class DemoState(Enum):
     """
     Define all possible states your bot can detect.
-    根据页面元素定义所有可能的状态
+    Each state corresponds to a specific page or UI condition.
     """
-    UNKNOWN = "unknown"       # Cannot determine state (无法判断)
-    HOME = "home"             # On homepage (在首页)
-    FORMS_PAGE = "forms"      # On forms page (在表单页)
-    RESPONSE_PAGE = "response"  # Viewing response (查看响应)
-    ERROR = "error"           # Error state (错误状态)
+    UNKNOWN = "unknown"         # Cannot determine state
+    HOME = "home"               # On homepage
+    FORMS_PAGE = "forms"        # On forms page
+    RESPONSE_PAGE = "response"  # Viewing JSON response
+    ERROR = "error"             # Error state
 
 
 # =============================================================================
-# State Detection (状态检测)
+# State Detection
 # =============================================================================
 
 def detect_state(page: Page) -> DemoState:
     """
     Detect current page state by checking visible elements.
-    通过检查可见元素判断当前页面状态
 
     This is the CORE of state machine pattern:
     - Check specific elements that indicate each state
@@ -67,7 +65,7 @@ def detect_state(page: Page) -> DemoState:
     try:
         url = page.url
 
-        # Check URL patterns first (快速判断)
+        # Check URL patterns first (fast path)
         if "httpbin.org/forms" in url:
             return DemoState.FORMS_PAGE
 
@@ -90,13 +88,12 @@ def detect_state(page: Page) -> DemoState:
 
 
 # =============================================================================
-# Actions (操作执行)
+# Actions
 # =============================================================================
 
 def action_go_to_forms(page: Page, recovery_manager: RecoveryManager = None) -> bool:
     """
-    Action: Navigate from HOME to FORMS page
-    操作：从首页进入表单页
+    Action: Navigate from HOME to FORMS page.
     """
     print("[Action] Navigating to forms page...")
 
@@ -126,8 +123,7 @@ def action_go_to_forms(page: Page, recovery_manager: RecoveryManager = None) -> 
 
 def action_submit_form(page: Page, recovery_manager: RecoveryManager = None) -> bool:
     """
-    Action: Fill and submit the form on FORMS page
-    操作：填写并提交表单
+    Action: Fill and submit the form on FORMS page.
     """
     print("[Action] Filling and submitting form...")
 
@@ -169,8 +165,7 @@ def action_submit_form(page: Page, recovery_manager: RecoveryManager = None) -> 
 
 def action_go_home(page: Page, recovery_manager: RecoveryManager = None) -> bool:
     """
-    Action: Return to homepage
-    操作：返回首页
+    Action: Return to homepage.
     """
     print("[Action] Returning to homepage...")
 
@@ -188,19 +183,18 @@ def action_go_home(page: Page, recovery_manager: RecoveryManager = None) -> bool
 
 
 # =============================================================================
-# Strategy Logic (策略逻辑)
+# Strategy Logic
 # =============================================================================
 
 def run_strategy(page: Page, recovery_manager: RecoveryManager, logger: DualLogger) -> bool:
     """
     Main strategy loop - the brain of your bot.
-    主策略循环 - 机器人的核心逻辑
 
     Pattern:
-    1. Detect current state (检测状态)
-    2. Decide action based on state (根据状态决定操作)
-    3. Execute action (执行操作)
-    4. Verify result (验证结果)
+    1. Detect current state
+    2. Decide action based on state
+    3. Execute action
+    4. Verify result
     """
 
     # Step 1: Detect state
