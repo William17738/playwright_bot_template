@@ -1,0 +1,10 @@
+# Strategy Bot Dependencies
+
+# Browser Automation
+playwright>=1.40.0
+
+# Optional: Stealth mode for anti-detection
+# playwright-stealth>=1.0.0
+
+# Standard library modules used (no install needed):
+# - urllib, json, time, os, sys, smtplib, email, random
