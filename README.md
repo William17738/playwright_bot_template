@@ -145,6 +145,12 @@ echo "force_refresh" > command.txt
 | **Proxy API abstraction** | Works with Clash/V2Ray/any RESTful proxy, not locked to one |
 | **Environment variables** | Secrets never in code, easy Docker/cloud deployment |
 
+### Limitations
+
+- **Not an anti-detection tool** - This framework focuses on reliability, not bypassing security measures
+- **Best for internal automation** - Designed for monitoring, testing, and workflow automation on systems you own or have permission to access
+- **Single browser instance** - Not designed for parallel/distributed scraping at scale
+
 ## Troubleshooting
 
 ### Proxy API connection refused
