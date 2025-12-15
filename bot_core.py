@@ -10,6 +10,8 @@ import os
 import time
 import smtplib
 import random
+import json
+from urllib.parse import urlparse, parse_qs, urlencode
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
@@ -31,6 +33,10 @@ LOCK_FILE = "pause.lock"
 CMD_FILE = "command.txt"
 QR_IMAGE = "login_qr.png"
 MONITOR_IMAGE = "monitor.png"
+
+# Subscription management files
+SUBSCRIBE_URL_FILE = "subscribe_url.txt"
+SUBSCRIBE_STATUS_FILE = "subscribe_status.json"
 
 # Timing configuration - customize for your use case
 MIN_WAIT = int(os.environ.get('MIN_WAIT', 5))
@@ -54,6 +60,46 @@ class DualLogger:
         self.log.flush()
 
 # ================= Core Utilities =================
+
+def atomic_write(filepath, content):
+    """Atomic file write - write to .tmp then rename, avoid partial reads"""
+    tmp_path = filepath + '.tmp'
+    with open(tmp_path, 'w', encoding='utf-8') as f:
+        f.write(content)
+    os.replace(tmp_path, filepath)
+
+def safe_read_json(filepath, default=None):
+    """Safely read JSON file, return default on any error"""
+    try:
+        if not os.path.exists(filepath):
+            return default
+        with open(filepath, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+            if not content:
+                return default
+            return json.loads(content)
+    except (json.JSONDecodeError, IOError, OSError, UnicodeDecodeError) as e:
+        print(f"    [Warning] Failed to read {filepath}: {e}")
+        return default
+
+def mask_url(url):
+    """
+    Mask URL for safe display - hide query parameter values.
+    https://api.example.com/sub?token=SECRET
+    → https://api.example.com/sub?token=***
+    """
+    if not url:
+        return "(empty)"
+    try:
+        parsed = urlparse(url)
+        base = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        if parsed.query:
+            params = parse_qs(parsed.query, keep_blank_values=True)
+            masked = {k: ['***'] for k in params.keys()}
+            return f"{base}?{urlencode(masked, doseq=True)}"
+        return base
+    except:
+        return url[:25] + "...***" if len(url) > 25 else url
 
 def update_monitor(page):
     """Update monitoring screenshot (atomic operation, silent fail)"""
@@ -92,20 +138,51 @@ def send_alert_email(subject, body, image_path=None):
     except Exception as e:
         print(f"    [Email Failed] {e}")
 
+def _parse_command(raw_content):
+    """
+    Parse command content, supports two formats:
+    1. JSON: {"cmd": "xxx", "ts": 123456}
+    2. Plain text: xxx (backward compatible)
+    Returns: (cmd_name, timestamp)
+    """
+    try:
+        data = json.loads(raw_content)
+        cmd = data.get('cmd', '')
+        ts = data.get('ts', 0)
+        # Ignore commands older than 60 seconds
+        if ts and time.time() - ts > 60:
+            print(f"    [Remote] Command expired ({int(time.time() - ts)}s ago), ignoring")
+            return None, ts
+        return cmd, ts
+    except (json.JSONDecodeError, TypeError):
+        # Backward compatible: plain text format
+        return raw_content.strip(), 0
+
 def check_remote_control(page=None):
-    """Check and execute remote control commands"""
+    """Check and execute remote control commands (supports JSON format)"""
     should_run_immediately = False
 
     # Check command file
     if os.path.exists(CMD_FILE):
         with open(CMD_FILE, 'r') as f:
-            cmd = f.read().strip()
+            raw = f.read().strip()
         os.remove(CMD_FILE)
-        print(f"\n[Remote] Received command: {cmd}")
 
-        # Implement your command handling here
-        # Example: if cmd == "logout": handle_logout(page)
-        pass
+        cmd, ts = _parse_command(raw)
+        if cmd is None:
+            pass  # Command expired, skip
+        elif cmd == "update_subscribe":
+            print(f"\n[Remote] Command: update_subscribe")
+            try:
+                import proxy_helper
+                result = proxy_helper.update_subscription()
+                print(f"       Subscription update: {'success' if result else 'failed'}")
+            except Exception as e:
+                print(f"       Subscription update error: {e}")
+        elif cmd:
+            print(f"\n[Remote] Received command: {cmd}")
+            # Implement your command handling here
+            # Example: if cmd == "logout": handle_logout(page)
 
     # Check pause lock
     if os.path.exists(LOCK_FILE):

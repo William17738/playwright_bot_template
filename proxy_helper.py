@@ -11,8 +11,13 @@ import urllib.request
 import urllib.parse
 import time
 import os
+import threading
+import datetime
 from typing import Dict, List, Tuple, Optional
 from enum import Enum
+
+# Import utilities from bot_core
+from bot_core import atomic_write, safe_read_json, mask_url, SUBSCRIBE_URL_FILE, SUBSCRIBE_STATUS_FILE
 
 # ================= Configuration =================
 
@@ -21,8 +26,28 @@ PROXY_PORT = os.environ.get('PROXY_PORT', '9090')
 API_URL = f"http://127.0.0.1:{PROXY_PORT}"
 API_SECRET = os.environ.get('PROXY_SECRET', "")
 
-# Subscription URL (optional, for auto-update)
-SUB_URL = os.environ.get('SUB_URL', "")
+# Subscription URL (default, can be overridden by subscribe_url.txt)
+DEFAULT_SUB_URL = os.environ.get('SUB_URL', "")
+
+# Subscription update debounce
+_subscribe_lock = threading.Lock()
+_last_subscribe_update = 0
+MIN_SUBSCRIBE_INTERVAL = 30  # seconds
+
+def get_sub_url():
+    """
+    Dynamically get subscription URL (read latest value each time).
+    Priority: subscribe_url.txt > environment variable > default
+    """
+    try:
+        if os.path.exists(SUBSCRIBE_URL_FILE):
+            with open(SUBSCRIBE_URL_FILE, 'r', encoding='utf-8') as f:
+                url = f.read().strip()
+                if url:
+                    return url
+    except Exception as e:
+        print(f"    [Subscription] Failed to read file: {e}")
+    return DEFAULT_SUB_URL
 
 # Health check URLs
 TEST_URLS = [
@@ -234,18 +259,48 @@ def get_mixed_port() -> int:
 
 # ================= Subscription Update =================
 
+def _write_subscribe_status(success: bool, url: str, error: str = None):
+    """Write subscription update status (atomic write)"""
+    status = {
+        "last_update": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "success": success,
+        "url_preview": mask_url(url),
+        "error": error
+    }
+    try:
+        atomic_write(SUBSCRIBE_STATUS_FILE, json.dumps(status, ensure_ascii=False, indent=2))
+    except Exception as e:
+        print(f"    [Subscription] Failed to write status: {e}")
+
 def update_subscription() -> bool:
     """
-    Update proxy subscription (if SUB_URL is configured).
+    Update proxy subscription with debounce and locking.
     Returns: True if successful.
     """
-    if not SUB_URL:
+    global _last_subscribe_update
+
+    # 1. Debounce: skip if updated recently
+    now = time.time()
+    if now - _last_subscribe_update < MIN_SUBSCRIBE_INTERVAL:
+        print(f"    [Subscription] Too soon ({int(now - _last_subscribe_update)}s since last), skipping")
+        return True  # Treat as success, no update needed
+
+    # 2. Non-blocking lock: skip if update in progress
+    if not _subscribe_lock.acquire(blocking=False):
+        print("    [Subscription] Update already in progress, skipping")
+        return True
+
+    sub_url = get_sub_url()
+    if not sub_url:
         print("    [Subscription] No SUB_URL configured")
+        _subscribe_lock.release()
         return False
 
-    print("    [Subscription] Downloading latest config...")
     try:
-        req = urllib.request.Request(SUB_URL)
+        _last_subscribe_update = now
+        print(f"    [Subscription] Downloading: {mask_url(sub_url)}")
+
+        req = urllib.request.Request(sub_url)
         req.add_header("User-Agent", "ProxyHelper/1.0")
 
         with urllib.request.urlopen(req, timeout=20) as response:
@@ -254,17 +309,22 @@ def update_subscription() -> bool:
         # Validate content
         if b"proxies:" not in content and b"port:" not in content:
             print("    [Subscription] Invalid content")
+            _write_subscribe_status(False, sub_url, "Invalid content")
             return False
 
         # Reload config via API
         url = f"{API_URL}/configs?force=true"
         # Note: This requires proper config path - customize as needed
-        print("    [Subscription] Config downloaded, reload manually if needed")
+        print("    [Subscription] Config downloaded successfully")
+        _write_subscribe_status(True, sub_url)
         return True
 
     except Exception as e:
         print(f"    [Subscription] Update failed: {e}")
+        _write_subscribe_status(False, sub_url, str(e))
         return False
+    finally:
+        _subscribe_lock.release()
 
 # ================= CLI Entry =================
 
