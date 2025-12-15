@@ -1,104 +1,204 @@
-# Strategy Bot Template
+# Playwright Bot Template
 
-A modular framework for building robust Playwright-based automation bots with network health management and multi-level recovery.
+> A production-grade framework for building **long-running** Playwright automation bots that need to stay alive under flaky pages and unstable networks.
 
-## Features
+## Why This Project?
 
-- **State Machine Pattern** - Clean separation of state detection and action execution
-- **Multi-Level Recovery** - Automatic error handling at page, session, and process levels
-- **Network Health Management** - Proxy health monitoring with automatic node failover
-- **Remote Control** - File-based interface for pause/resume operations
-- **Email Alerts** - Notifications for login requests and critical errors
-- **Environment Configuration** - All sensitive data via environment variables
+| Problem | Solution |
+|---------|----------|
+| Bot gets stuck but doesn't crash | Multi-tier recovery (page → session → process) |
+| Network becomes unstable | Proxy health monitoring + auto-switching |
+| Need to pause/resume remotely | File-based control interface |
+| Hard to debug failures | Structured logging + email alerts |
+| Starting from scratch every time | Reusable framework with clear extension points |
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Your Strategy                             │
+│         ┌──────────────┐         ┌──────────────┐               │
+│         │ detect_state │ ──────► │ execute_action│               │
+│         └──────────────┘         └──────────────┘               │
+└─────────────────────────┬───────────────────────────────────────┘
+                          │
+┌─────────────────────────▼───────────────────────────────────────┐
+│                      Bot Core Framework                          │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
+│  │  Recovery   │  │  Safe Ops   │  │   Logging   │              │
+│  │  Manager    │  │  & Waits    │  │  & Alerts   │              │
+│  │ (A → B → C) │  │             │  │             │              │
+│  └─────────────┘  └─────────────┘  └─────────────┘              │
+└─────────────────────────┬───────────────────────────────────────┘
+                          │
+┌─────────────────────────▼───────────────────────────────────────┐
+│                    Infrastructure Layer                          │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐              │
+│  │   Proxy     │  │  Control    │  │   Email     │              │
+│  │   Health    │  │   Files     │  │   SMTP      │              │
+│  │  (API call) │  │ pause/cmd   │  │             │              │
+│  └─────────────┘  └─────────────┘  └─────────────┘              │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ## Quick Start
 
-### 1. Install Dependencies
+**Requirements:** Python 3.8+ (tested on 3.10, 3.11)
 
 ```bash
-pip install playwright
+# 1. Clone and install
+git clone https://github.com/William17738/playwright_bot_template.git
+cd playwright_bot_template
+pip install -r requirements.txt
 playwright install chromium
-```
 
-### 2. Configure Environment
+# 2. Run the demo (see it work in 3 minutes)
+python demo_strategy.py
 
-```bash
+# 3. Configure your environment
 cp .env.example .env
 # Edit .env with your settings
-```
 
-### 3. Implement Your Logic
-
-Edit `strategy_bot.py`:
-
-```python
-def detect_state(page):
-    """Detect current state from page elements"""
-    if page.locator("#online-indicator").is_visible(timeout=1000):
-        return BotState.ONLINE
-    if page.locator("#offline-indicator").is_visible(timeout=1000):
-        return BotState.OFFLINE
-    return BotState.UNKNOWN
-
-def execute_action_a(page, recovery_manager=None):
-    """Your primary action (e.g., go online)"""
-    btn = page.locator("#action-button")
-    if safe_click(page, btn, "Action Button"):
-        return True
-    return False
-```
-
-### 4. Try the Demo First
-
-```bash
-# Run the demo to see how it works (3 minutes)
-python demo_strategy.py
-```
-
-This demo uses httpbin.org to demonstrate the state machine pattern.
-
-### 5. Run Your Bot
-
-```bash
+# 4. Implement your logic in strategy_bot.py, then run
 python strategy_bot.py
 ```
 
 ## Project Structure
 
 ```
-├── strategy_bot.py    # Main entry point - implement your logic here
+├── strategy_bot.py    # Main entry - implement your logic here
 ├── demo_strategy.py   # Working demo using httpbin.org
-├── bot_core.py        # Core framework utilities
+├── bot_core.py        # Core framework (recovery, logging, utils)
 ├── proxy_helper.py    # Network health management
-├── .env.example       # Environment variable template
-├── requirements.txt   # Python dependencies
+├── .env.example       # Environment variables template
 ├── ARCHITECTURE.md    # Detailed architecture documentation
 └── PROXY_API.md       # Proxy API contract documentation
 ```
 
 ## Implementation Checklist
 
-When building your bot, implement these interfaces:
+### Required (must implement)
 
-### Required
-
-- [ ] **`BotState` enum** - Define all possible states (ONLINE, OFFLINE, etc.)
-- [ ] **`detect_state(page)`** - Return current state based on page elements
-- [ ] **`execute_action_*(page)`** - At least one action function
+- [ ] `BotState` enum - Define your states (ONLINE, OFFLINE, etc.)
+- [ ] `detect_state(page)` - Return current state from page elements
+- [ ] `execute_action_*(page)` - At least one action function
 
 ### Recommended
 
-- [ ] **`run_strategy(page, recovery_manager)`** - Main decision logic
-- [ ] **`get_wait_time()`** - Custom wait time logic (or use default)
-- [ ] **`human_delay()`** - Custom delay logic (or use default)
+- [ ] `run_strategy(page, recovery_manager)` - Main decision logic
+- [ ] `get_wait_time()` / `human_delay()` - Custom timing (or use defaults)
 
-### Optional
+### Optional hooks
 
-- [ ] **`on_recovery(level, error)`** - Hook called after recovery attempt
-- [ ] **`on_state_change(old, new)`** - Hook called on state transitions
-- [ ] **Custom email alerts** - Override `send_alert_email()` if needed
+- [ ] `on_recovery(level, error)` - Called after recovery attempt
+- [ ] `on_state_change(old, new)` - Called on state transitions
 
-## Configuration
+## Recovery System
+
+The framework automatically handles failures at three levels:
+
+| Level | Trigger | Action | Max Retries |
+|-------|---------|--------|-------------|
+| **A** (Page) | Element not found, timeout | Refresh page | 5 |
+| **B** (Session) | Level A exhausted, URL mismatch | Navigate to target | 3 |
+| **C** (Process) | Level B exhausted, crash | Exit code 2 (restart signal) | - |
+
+**Cooldown:** 30 seconds between recovery attempts to prevent loops.
+
+## Network Health Management
+
+`proxy_helper.py` monitors your proxy via RESTful API:
+
+| Status | Latency | Action |
+|--------|---------|--------|
+| EXCELLENT | < 300ms | Continue |
+| HEALTHY | < 800ms | Continue |
+| DEGRADED | < 1500ms | Log warning |
+| UNHEALTHY | ≥ 1500ms / timeout | Auto-switch node |
+
+See [PROXY_API.md](PROXY_API.md) for supported proxy clients and API contract.
+
+## Remote Control
+
+Control the bot without SSH/restart:
+
+```bash
+# Pause the bot
+touch pause.lock
+# Bot logs: "[Paused] Waiting for pause.lock removal..."
+
+# Resume
+rm pause.lock
+# Bot continues from where it stopped
+
+# Send command (implement your handler in check_remote_control)
+echo "force_refresh" > command.txt
+```
+
+## Design Trade-offs
+
+| Decision | Why |
+|----------|-----|
+| **File-based control** vs WebSocket | Simpler deployment, no extra port, works across restarts |
+| **Three-tier recovery** vs single retry | Matches real failure modes (transient → page issue → system issue) |
+| **No built-in CI/tests** | Template flexibility - add what your project needs |
+| **Proxy API abstraction** | Works with Clash/V2Ray/any RESTful proxy, not locked to one |
+| **Environment variables** | Secrets never in code, easy Docker/cloud deployment |
+
+## Troubleshooting
+
+### Proxy API connection refused
+```bash
+# Check if proxy is running and API is enabled
+curl http://127.0.0.1:9090/proxies
+
+# If using Clash Verge, enable External Controller in settings
+# Default port: 9090, check your config for actual port
+```
+
+### Playwright browser not found
+```bash
+# Install browser binaries
+playwright install chromium
+
+# Or install all browsers
+playwright install
+```
+
+### Bot stuck in recovery loop
+```bash
+# Check logs for repeated errors
+tail -f bot_log.txt
+
+# Force pause and investigate
+touch pause.lock
+
+# Check current state manually
+python -c "from bot_core import *; print('Core loaded OK')"
+```
+
+### Email alerts not working
+```bash
+# Test SMTP connection
+python -c "
+import smtplib
+from bot_core import MAIL_HOST, MAIL_PORT
+print(f'Connecting to {MAIL_HOST}:{MAIL_PORT}...')
+s = smtplib.SMTP_SSL(MAIL_HOST, MAIL_PORT)
+print('OK')
+"
+```
+
+## Use Cases
+
+This framework is suitable for:
+
+- **Monitoring dashboards** - Periodic login and status checks
+- **Form automation** - Reliable form filling with recovery
+- **Data collection** - Scheduled extraction from authenticated pages
+- **Availability testing** - Long-running uptime verification
+
+## Configuration Reference
 
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -106,50 +206,21 @@ When building your bot, implement these interfaces:
 | `PROXY_PORT` | Proxy API port | `9090` |
 | `PROXY_SECRET` | Proxy API secret | (empty) |
 | `PROXY_MIXED_PORT` | Proxy SOCKS/HTTP port | `7890` |
-| `MIN_WAIT` | Minimum wait between cycles (minutes) | `5` |
-| `MAX_WAIT` | Maximum wait between cycles (minutes) | `45` |
-| `MAIL_HOST` | SMTP server host | `smtp.example.com` |
-| `MAIL_PORT` | SMTP server port | `465` |
+| `MIN_WAIT` | Min wait between cycles (min) | `5` |
+| `MAX_WAIT` | Max wait between cycles (min) | `45` |
+| `MAIL_HOST` | SMTP server | `smtp.example.com` |
+| `MAIL_PORT` | SMTP port | `465` |
 | `MAIL_USER` | SMTP username | (empty) |
 | `MAIL_PASS` | SMTP password | (empty) |
-| `MAIL_RECEIVER` | Alert recipient email | (empty) |
-
-## Recovery System
-
-The framework implements automatic error recovery:
-
-| Level | Trigger | Action |
-|-------|---------|--------|
-| **A** | Element not found, timeout | Page refresh |
-| **B** | Level A exhausted, URL mismatch | Navigate to target URL |
-| **C** | Level B exhausted, browser crash | Exit with restart signal |
-
-## Network Health
-
-`proxy_helper.py` monitors proxy health via RESTful API (compatible with Clash, Clash Verge, V2Ray, etc.):
-
-- Multi-URL latency testing
-- Health status classification (Excellent/Healthy/Degraded/Unhealthy)
-- Automatic node switching on failure
-- Optional subscription config updates
-
-See [PROXY_API.md](PROXY_API.md) for detailed API contract documentation.
-
-## Remote Control
-
-Control the bot via files in the working directory:
-
-| File | Effect |
-|------|--------|
-| `pause.lock` | Pause bot execution until file is removed |
-| `command.txt` | Execute custom commands (implement in `check_remote_control()`) |
-
-## Requirements
-
-- Python 3.8+
-- Playwright
-- Compatible proxy client with RESTful API (optional)
+| `MAIL_RECEIVER` | Alert recipient | (empty) |
 
 ## License
 
-MIT License
+MIT License - see [LICENSE](LICENSE) file.
+
+## Contributing
+
+Issues and PRs welcome. Please include:
+- Python version and OS
+- Relevant log output
+- Steps to reproduce (if bug)
