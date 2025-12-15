@@ -7,6 +7,9 @@ This is a TEMPLATE - implement your own strategy logic.
 
 import sys
 import os
+from dotenv import load_dotenv
+load_dotenv()  # Auto-load .env file
+
 import time
 import smtplib
 import random
