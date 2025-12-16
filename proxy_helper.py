@@ -215,9 +215,11 @@ def check_health() -> Tuple[str, int, bool]:
     print(f"    [Current Node] {node_name}")
 
     latency, status = multi_point_test(node_name)
-    is_healthy = status in (HealthStatus.EXCELLENT, HealthStatus.HEALTHY)
+    is_healthy = status in (HealthStatus.EXCELLENT, HealthStatus.HEALTHY, HealthStatus.DEGRADED)
 
     print(f"    [Result] {latency}ms, {status.value}")
+    if status == HealthStatus.DEGRADED:
+        print("    [Warning] Network degraded - monitoring only (no auto-switch)")
     return node_name, latency, is_healthy
 
 def try_fix_network() -> bool:

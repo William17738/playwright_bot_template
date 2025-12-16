@@ -150,6 +150,8 @@ def _parse_command(raw_content):
     """
     try:
         data = json.loads(raw_content)
+        if not isinstance(data, dict):
+            return None, 0
         cmd = data.get('cmd', '')
         ts = data.get('ts', 0)
         # Ignore commands older than 60 seconds
@@ -287,6 +289,9 @@ class RecoveryManager:
         self.error_count_b = 0
         self.max_a_errors = 5
         self.max_b_errors = 3
+        self.last_recovery_level = None
+        self.a_still_fail_count = 0
+        self.max_a_still_fail = 3
         self.last_recovery_time = 0
         self.recovery_cooldown = 30
 
@@ -334,9 +339,31 @@ class RecoveryManager:
 
         print(f"    [Recovery] Error type: {error_type}, Context: {context}")
 
+        # Escalate if Level A reload succeeds but does not solve the underlying issue
+        if self.last_recovery_level == "A":
+            self.a_still_fail_count += 1
+        else:
+            self.a_still_fail_count = 0
+
+        if self.a_still_fail_count >= self.max_a_still_fail:
+            print(f"    [Recovery] Level A ineffective {self.a_still_fail_count} times, escalating to Level B")
+            if self.recover_level_b(page, f"Level A ineffective {self.a_still_fail_count} times: {context}"):
+                self.error_count_a = 0
+                self.error_count_b = 0
+                self.a_still_fail_count = 0
+                self.last_recovery_level = "B"
+                self.last_recovery_time = current_time
+                return True
+            else:
+                self.error_count_b += 1
+                if self.error_count_b >= self.max_b_errors:
+                    self.trigger_level_c(f"Level B failed {self.error_count_b} times")
+                return False
+
         # Try Level A first
         if self.recover_level_a(page, context):
             self.error_count_a = 0
+            self.last_recovery_level = "A"
             self.last_recovery_time = current_time
             return True
         else:
@@ -347,6 +374,8 @@ class RecoveryManager:
             if self.recover_level_b(page, f"Level A failed {self.error_count_a} times"):
                 self.error_count_a = 0
                 self.error_count_b = 0
+                self.a_still_fail_count = 0
+                self.last_recovery_level = "B"
                 self.last_recovery_time = current_time
                 return True
             else:
@@ -362,6 +391,8 @@ class RecoveryManager:
         """Reset error counters after successful operation"""
         self.error_count_a = 0
         self.error_count_b = 0
+        self.a_still_fail_count = 0
+        self.last_recovery_level = None
 
     def attempt_recovery(self, page, error_context=""):
         """Unified recovery interface"""
