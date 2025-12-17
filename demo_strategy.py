@@ -15,6 +15,7 @@ import time
 import random
 from enum import Enum
 from playwright.sync_api import sync_playwright, Page
+from typing import Optional
 
 # Import from bot_core
 from bot_core import (
@@ -90,7 +91,7 @@ def detect_state(page: Page) -> DemoState:
 # Actions
 # =============================================================================
 
-def action_go_to_forms(page: Page, recovery_manager: RecoveryManager = None) -> bool:
+def action_go_to_forms(page: Page, recovery_manager: Optional[RecoveryManager] = None) -> bool:
     """
     Action: Navigate from HOME to FORMS page.
     """
@@ -118,7 +119,7 @@ def action_go_to_forms(page: Page, recovery_manager: RecoveryManager = None) -> 
         return False
 
 
-def action_submit_form(page: Page, recovery_manager: RecoveryManager = None) -> bool:
+def action_submit_form(page: Page, recovery_manager: Optional[RecoveryManager] = None) -> bool:
     """
     Action: Fill and submit the form on FORMS page.
     """
@@ -158,7 +159,7 @@ def action_submit_form(page: Page, recovery_manager: RecoveryManager = None) -> 
         return False
 
 
-def action_go_home(page: Page, recovery_manager: RecoveryManager = None) -> bool:
+def action_go_home(page: Page, recovery_manager: Optional[RecoveryManager] = None) -> bool:
     """
     Action: Return to homepage.
     """
@@ -233,7 +234,7 @@ def run_strategy(page: Page, recovery_manager: RecoveryManager, logger: DualLogg
 # Main Entry Point
 # =============================================================================
 
-def main():
+def main() -> None:
     """Demo entry point"""
     from dotenv import load_dotenv
     load_dotenv()

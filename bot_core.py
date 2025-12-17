@@ -16,6 +16,70 @@ from urllib.parse import urlparse, parse_qs, urlencode
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
+from typing import Any, NoReturn, Optional
+
+from config import MS_PER_SECOND, SECONDS_PER_MINUTE
+
+# ================= Constants =================
+# NOTE: These values preserve the template's original behavior. Adjusting them
+# changes bot timing, retry thresholds, and other runtime characteristics.
+
+# Default SMTP SSL port used when MAIL_PORT is not provided via environment.
+DEFAULT_MAIL_PORT = 465
+
+# Default min/max wait time (minutes) between iterations when not provided via env.
+DEFAULT_MIN_WAIT_MINUTES = 5
+DEFAULT_MAX_WAIT_MINUTES = 45
+
+# How many URL characters to show before masking the rest (avoid leaking tokens).
+MASK_URL_VISIBLE_PREFIX_CHARS = 25
+
+# Remote control commands older than this (seconds) are ignored.
+REMOTE_COMMAND_EXPIRY_SECONDS = 60
+
+# How often to poll (seconds) while a pause lock file exists.
+PAUSE_LOCK_POLL_INTERVAL_SECONDS = 5
+
+# Default human-like delay range (seconds) between actions.
+HUMAN_DELAY_MIN_SECONDS_DEFAULT = 0.5
+HUMAN_DELAY_MAX_SECONDS_DEFAULT = 2.0
+
+# Default max wait time (seconds) for safe click operations.
+SAFE_CLICK_MAX_WAIT_SECONDS_DEFAULT = 5
+
+# Timeout (ms) used when checking if a button is visible.
+FIND_BUTTON_VISIBLE_TIMEOUT_MS = 300
+
+# Element stability detection defaults.
+ELEMENT_STABILITY_TIMEOUT_SECONDS_DEFAULT = 2.0
+ELEMENT_STABILITY_THRESHOLD_PX_DEFAULT = 2
+ELEMENT_STABILITY_BOUNDING_BOX_TIMEOUT_MS = 200
+ELEMENT_STABILITY_REQUIRED_STABLE_CHECKS = 2
+ELEMENT_STABILITY_POLL_INTERVAL_SECONDS = 0.1
+
+# Recovery system tuning.
+RECOVERY_MAX_A_ERRORS = 5
+RECOVERY_MAX_B_ERRORS = 3
+RECOVERY_MAX_A_STILL_FAIL = 3
+RECOVERY_COOLDOWN_SECONDS = 30
+RECOVERY_A_RELOAD_TIMEOUT_MS = 15000
+RECOVERY_A_POST_RELOAD_SLEEP_SECONDS = 3
+RECOVERY_B_GOTO_TIMEOUT_MS = 20000
+RECOVERY_B_POST_GOTO_SLEEP_SECONDS = 3
+RECOVERY_C_RESTART_DELAY_SECONDS = 30
+RECOVERY_RESTART_EXIT_CODE = 2
+
+# Timeout (ms) used when checking for password field visibility in login detection.
+PASSWORD_FIELD_VISIBLE_TIMEOUT_MS = 500
+
+# Login waiting defaults.
+WAIT_FOR_LOGIN_DEFAULT_TIMEOUT_MINUTES = 30
+LOGIN_ALERT_BANNER_WIDTH = 50
+LOGIN_POLL_INTERVAL_SECONDS = 5
+
+# Default timeouts for safe visibility/wait helper functions (ms).
+SAFE_VISIBLE_TIMEOUT_MS_DEFAULT = 400
+SAFE_WAIT_TIMEOUT_MS_DEFAULT = 5000
 
 # ================= Configuration =================
 
@@ -24,7 +88,7 @@ TARGET_URL = os.environ.get('TARGET_URL', "https://example.com")
 
 # Email configuration (set via environment variables)
 MAIL_HOST = os.environ.get('MAIL_HOST', "smtp.example.com")
-MAIL_PORT = int(os.environ.get('MAIL_PORT', 465))
+MAIL_PORT = int(os.environ.get('MAIL_PORT', DEFAULT_MAIL_PORT))
 MAIL_USER = os.environ.get('MAIL_USER', "")
 MAIL_PASS = os.environ.get('MAIL_PASS', "")
 MAIL_RECEIVER = os.environ.get('MAIL_RECEIVER', "")
@@ -40,8 +104,8 @@ SUBSCRIBE_URL_FILE = "subscribe_url.txt"
 SUBSCRIBE_STATUS_FILE = "subscribe_status.json"
 
 # Timing configuration - customize for your use case
-MIN_WAIT = int(os.environ.get('MIN_WAIT', 5))
-MAX_WAIT = int(os.environ.get('MAX_WAIT', 45))
+MIN_WAIT = int(os.environ.get('MIN_WAIT', DEFAULT_MIN_WAIT_MINUTES))
+MAX_WAIT = int(os.environ.get('MAX_WAIT', DEFAULT_MAX_WAIT_MINUTES))
 
 # ================= Logging =================
 
@@ -51,25 +115,25 @@ class DualLogger:
         self.terminal = sys.stdout
         self.log = open(filepath, "a", encoding="utf-8")
 
-    def write(self, message):
+    def write(self, message: str) -> None:
         self.terminal.write(message)
         self.log.write(message)
         self.log.flush()
 
-    def flush(self):
+    def flush(self) -> None:
         self.terminal.flush()
         self.log.flush()
 
 # ================= Core Utilities =================
 
-def atomic_write(filepath, content):
+def atomic_write(filepath: str, content: str) -> None:
     """Atomic file write - write to .tmp then rename, avoid partial reads"""
     tmp_path = filepath + '.tmp'
     with open(tmp_path, 'w', encoding='utf-8') as f:
         f.write(content)
     os.replace(tmp_path, filepath)
 
-def safe_read_json(filepath, default=None):
+def safe_read_json(filepath: str, default: Optional[Any] = None) -> Optional[Any]:
     """Safely read JSON file, return default on any error"""
     try:
         if not os.path.exists(filepath):
@@ -83,7 +147,7 @@ def safe_read_json(filepath, default=None):
         print(f"    [Warning] Failed to read {filepath}: {e}")
         return default
 
-def mask_url(url):
+def mask_url(url: Optional[str]) -> str:
     """
     Mask URL for safe display - hide query parameter values.
     https://api.example.com/sub?token=SECRET
@@ -100,9 +164,13 @@ def mask_url(url):
             return f"{base}?{urlencode(masked, doseq=True)}"
         return base
     except Exception:
-        return url[:25] + "...***" if len(url) > 25 else url
+        return (
+            url[:MASK_URL_VISIBLE_PREFIX_CHARS] + "...***"
+            if len(url) > MASK_URL_VISIBLE_PREFIX_CHARS
+            else url
+        )
 
-def update_monitor(page):
+def update_monitor(page: Any) -> None:
     """Update monitoring screenshot (atomic operation, silent fail)"""
     try:
         abs_path = os.path.abspath(MONITOR_IMAGE)
@@ -115,7 +183,7 @@ def update_monitor(page):
     except Exception:
         pass
 
-def send_alert_email(subject, body, image_path=None):
+def send_alert_email(subject: str, body: str, image_path: Optional[str] = None) -> None:
     """Send alert email notification"""
     if not MAIL_USER or not MAIL_PASS:
         print(f"    [Email] Skipped (not configured): {subject}")
@@ -152,8 +220,8 @@ def _parse_command(raw_content):
             return None, 0
         cmd = data.get('cmd', '')
         ts = data.get('ts', 0)
-        # Ignore commands older than 60 seconds
-        if ts and time.time() - ts > 60:
+        # Ignore commands older than a fixed threshold to avoid replaying stale actions.
+        if ts and time.time() - ts > REMOTE_COMMAND_EXPIRY_SECONDS:
             print(f"    [Remote] Command expired ({int(time.time() - ts)}s ago), ignoring")
             return None, ts
         return cmd, ts
@@ -161,7 +229,7 @@ def _parse_command(raw_content):
         # Backward compatible: plain text format
         return raw_content.strip(), 0
 
-def check_remote_control(page=None):
+def check_remote_control(page: Optional[Any] = None) -> bool:
     """Check and execute remote control commands (supports JSON format)"""
     should_run_immediately = False
 
@@ -191,7 +259,7 @@ def check_remote_control(page=None):
     if os.path.exists(LOCK_FILE):
         print(f"\n[Remote] Detected {LOCK_FILE}, pausing...")
         while os.path.exists(LOCK_FILE):
-            time.sleep(5)
+            time.sleep(PAUSE_LOCK_POLL_INTERVAL_SECONDS)
         print("[Remote] Pause ended, resuming!")
         should_run_immediately = True
 
@@ -199,7 +267,7 @@ def check_remote_control(page=None):
 
 # ================= Timing Functions (Implement Your Own) =================
 
-def get_wait_time():
+def get_wait_time() -> float:
     """
     Get wait time between operations.
 
@@ -207,9 +275,12 @@ def get_wait_time():
     This is a simple placeholder implementation.
     """
     # Simple random wait - replace with your own logic
-    return random.uniform(MIN_WAIT * 60, MAX_WAIT * 60)
+    return random.uniform(MIN_WAIT * SECONDS_PER_MINUTE, MAX_WAIT * SECONDS_PER_MINUTE)
 
-def human_delay(min_sec=0.5, max_sec=2.0):
+def human_delay(
+    min_sec: float = HUMAN_DELAY_MIN_SECONDS_DEFAULT,
+    max_sec: float = HUMAN_DELAY_MAX_SECONDS_DEFAULT,
+) -> None:
     """
     Human-like delay between actions.
 
@@ -219,28 +290,38 @@ def human_delay(min_sec=0.5, max_sec=2.0):
 
 # ================= Page Operations =================
 
-def safe_click(page, locator, description="element", max_wait=5):
+def safe_click(
+    page: Any,
+    locator: Any,
+    description: str = "element",
+    max_wait: float = SAFE_CLICK_MAX_WAIT_SECONDS_DEFAULT,
+) -> bool:
     """Safe click with wait and error handling"""
     try:
-        locator.wait_for(state="visible", timeout=max_wait*1000)
-        locator.click(timeout=max_wait*1000)
+        locator.wait_for(state="visible", timeout=max_wait * MS_PER_SECOND)
+        locator.click(timeout=max_wait * MS_PER_SECOND)
         print(f"    [Action] Clicked: {description}")
         return True
     except Exception as e:
         print(f"    [Failed] Cannot click {description}: {e}")
         return False
 
-def find_button(page, text):
+def find_button(page: Any, text: str) -> Optional[Any]:
     """Find button by text (fuzzy match)"""
     try:
         button = page.get_by_role("button").filter(has_text=text).first
-        if button.is_visible(timeout=300):
+        if button.is_visible(timeout=FIND_BUTTON_VISIBLE_TIMEOUT_MS):
             return button
     except Exception:
         pass
     return None
 
-def wait_for_element_stable(page, locator, timeout=2.0, threshold=2):
+def wait_for_element_stable(
+    page: Any,
+    locator: Any,
+    timeout: float = ELEMENT_STABILITY_TIMEOUT_SECONDS_DEFAULT,
+    threshold: int = ELEMENT_STABILITY_THRESHOLD_PX_DEFAULT,
+) -> bool:
     """
     Wait for element position to stabilize (animation complete).
     Checks if bounding box remains stable for consecutive checks.
@@ -251,14 +332,14 @@ def wait_for_element_stable(page, locator, timeout=2.0, threshold=2):
 
     while time.time() - start < timeout:
         try:
-            box = locator.bounding_box(timeout=200)
+            box = locator.bounding_box(timeout=ELEMENT_STABILITY_BOUNDING_BOX_TIMEOUT_MS)
             if box:
                 if last_box:
                     dx = abs(box['x'] - last_box['x'])
                     dy = abs(box['y'] - last_box['y'])
                     if dx < threshold and dy < threshold:
                         stable_count += 1
-                        if stable_count >= 2:
+                        if stable_count >= ELEMENT_STABILITY_REQUIRED_STABLE_CHECKS:
                             print(f"       [Stable] Element position stabilized")
                             return True
                     else:
@@ -266,7 +347,7 @@ def wait_for_element_stable(page, locator, timeout=2.0, threshold=2):
                 last_box = box
         except Exception:
             pass
-        time.sleep(0.1)
+        time.sleep(ELEMENT_STABILITY_POLL_INTERVAL_SECONDS)
 
     print(f"       [Timeout] Wait for stable timeout")
     return False
@@ -285,49 +366,49 @@ class RecoveryManager:
     def __init__(self):
         self.error_count_a = 0
         self.error_count_b = 0
-        self.max_a_errors = 5
-        self.max_b_errors = 3
+        self.max_a_errors = RECOVERY_MAX_A_ERRORS
+        self.max_b_errors = RECOVERY_MAX_B_ERRORS
         self.last_recovery_level = None
         self.a_still_fail_count = 0
-        self.max_a_still_fail = 3
+        self.max_a_still_fail = RECOVERY_MAX_A_STILL_FAIL
         self.last_recovery_time = 0
-        self.recovery_cooldown = 30
+        self.recovery_cooldown = RECOVERY_COOLDOWN_SECONDS
 
-    def recover_level_a(self, page, context=""):
+    def recover_level_a(self, page: Any, context: str = "") -> bool:
         """Level A: Page refresh"""
         print(f"    [Recovery-A] Page level: {context}")
         try:
-            page.reload(timeout=15000)
-            time.sleep(3)
+            page.reload(timeout=RECOVERY_A_RELOAD_TIMEOUT_MS)
+            time.sleep(RECOVERY_A_POST_RELOAD_SLEEP_SECONDS)
             print("    [Recovery-A] Page refresh complete")
             return True
         except Exception as e:
             print(f"    [Recovery-A Failed] {e}")
             return False
 
-    def recover_level_b(self, page, context=""):
+    def recover_level_b(self, page: Any, context: str = "") -> bool:
         """Level B: Session rebuild"""
         print(f"    [Recovery-B] Session level: {context}")
         try:
-            page.goto(TARGET_URL, timeout=20000, wait_until="domcontentloaded")
-            time.sleep(3)
+            page.goto(TARGET_URL, timeout=RECOVERY_B_GOTO_TIMEOUT_MS, wait_until="domcontentloaded")
+            time.sleep(RECOVERY_B_POST_GOTO_SLEEP_SECONDS)
             print("    [Recovery-B] Session rebuild complete")
             return True
         except Exception as e:
             print(f"    [Recovery-B Failed] {e}")
             return False
 
-    def trigger_level_c(self, reason="Error threshold reached"):
+    def trigger_level_c(self, reason: str = "Error threshold reached") -> NoReturn:
         """Level C: Trigger process restart"""
         print(f"    [Recovery-C] {reason}")
         send_alert_email(
             "[Bot] Level C Restart Triggered",
-            f"Reason: {reason}\nSystem will restart in 30 seconds."
+            f"Reason: {reason}\nSystem will restart in {RECOVERY_C_RESTART_DELAY_SECONDS} seconds."
         )
-        time.sleep(30)
-        sys.exit(2)  # Exit code 2 = needs restart
+        time.sleep(RECOVERY_C_RESTART_DELAY_SECONDS)
+        sys.exit(RECOVERY_RESTART_EXIT_CODE)  # Exit code = needs restart
 
-    def handle_error(self, page, error_type, context=""):
+    def handle_error(self, page: Any, error_type: str, context: str = "") -> bool:
         """Unified error handling entry point"""
         current_time = time.time()
 
@@ -385,20 +466,20 @@ class RecoveryManager:
 
         return False
 
-    def reset_counters(self):
+    def reset_counters(self) -> None:
         """Reset error counters after successful operation"""
         self.error_count_a = 0
         self.error_count_b = 0
         self.a_still_fail_count = 0
         self.last_recovery_level = None
 
-    def attempt_recovery(self, page, error_context=""):
+    def attempt_recovery(self, page: Any, error_context: str = "") -> bool:
         """Unified recovery interface"""
         return self.handle_error(page, "unknown", error_context)
 
 # ================= Login Detection =================
 
-def is_login_required(page):
+def is_login_required(page: Any) -> bool:
     """
     Check if login is required.
 
@@ -413,25 +494,25 @@ def is_login_required(page):
 
     # Check for password input field
     try:
-        if page.locator("input[type='password']").is_visible(timeout=500):
+        if page.locator("input[type='password']").is_visible(timeout=PASSWORD_FIELD_VISIBLE_TIMEOUT_MS):
             return True
     except Exception:
         pass
 
     return False
 
-def wait_for_login(page, timeout_minutes=30):
+def wait_for_login(page: Any, timeout_minutes: float = WAIT_FOR_LOGIN_DEFAULT_TIMEOUT_MINUTES) -> bool:
     """
     Wait for user to complete login.
 
     CUSTOMIZE FOR YOUR LOGIN FLOW.
     """
-    print("\n" + "!" * 50)
+    print("\n" + "!" * LOGIN_ALERT_BANNER_WIDTH)
     print("[Alert] Login required...")
 
     send_alert_email(
         "[Bot] Login Required",
-        "Please complete login within 30 minutes.",
+        f"Please complete login within {WAIT_FOR_LOGIN_DEFAULT_TIMEOUT_MINUTES} minutes.",
         QR_IMAGE
     )
 
@@ -442,24 +523,24 @@ def wait_for_login(page, timeout_minutes=30):
         pass
 
     start_wait = time.time()
-    while time.time() - start_wait < timeout_minutes * 60:
+    while time.time() - start_wait < timeout_minutes * SECONDS_PER_MINUTE:
         if not is_login_required(page):
             print("[Success] Login completed!")
             return True
-        time.sleep(5)
+        time.sleep(LOGIN_POLL_INTERVAL_SECONDS)
 
     return False
 
 # ================= Utility Functions =================
 
-def safe_visible(locator, timeout=400):
+def safe_visible(locator: Any, timeout: int = SAFE_VISIBLE_TIMEOUT_MS_DEFAULT) -> bool:
     """Safely check if element is visible"""
     try:
         return locator.is_visible(timeout=timeout)
     except Exception:
         return False
 
-def safe_wait(locator, state="visible", timeout=5000):
+def safe_wait(locator: Any, state: str = "visible", timeout: int = SAFE_WAIT_TIMEOUT_MS_DEFAULT) -> bool:
     """Safely wait for element state"""
     try:
         locator.wait_for(state=state, timeout=timeout)
