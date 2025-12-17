@@ -180,7 +180,7 @@ tail -f bot_log.txt
 touch pause.lock
 
 # Check current state manually
-python -c "from bot_core import *; print('Core loaded OK')"
+python -c "import bot_core; print('Core loaded OK')"
 ```
 
 ### Email alerts not working

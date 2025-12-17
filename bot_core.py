@@ -7,8 +7,6 @@ This is a TEMPLATE - implement your own strategy logic.
 
 import sys
 import os
-from dotenv import load_dotenv
-load_dotenv()  # Auto-load .env file
 
 import time
 import smtplib
@@ -101,7 +99,7 @@ def mask_url(url):
             masked = {k: ['***'] for k in params.keys()}
             return f"{base}?{urlencode(masked, doseq=True)}"
         return base
-    except:
+    except Exception:
         return url[:25] + "...***" if len(url) > 25 else url
 
 def update_monitor(page):
@@ -238,7 +236,7 @@ def find_button(page, text):
         button = page.get_by_role("button").filter(has_text=text).first
         if button.is_visible(timeout=300):
             return button
-    except:
+    except Exception:
         pass
     return None
 
@@ -266,7 +264,7 @@ def wait_for_element_stable(page, locator, timeout=2.0, threshold=2):
                     else:
                         stable_count = 0
                 last_box = box
-        except:
+        except Exception:
             pass
         time.sleep(0.1)
 
@@ -417,7 +415,7 @@ def is_login_required(page):
     try:
         if page.locator("input[type='password']").is_visible(timeout=500):
             return True
-    except:
+    except Exception:
         pass
 
     return False
@@ -440,7 +438,7 @@ def wait_for_login(page, timeout_minutes=30):
     # Save screenshot
     try:
         page.screenshot(path=QR_IMAGE)
-    except:
+    except Exception:
         pass
 
     start_wait = time.time()
@@ -458,7 +456,7 @@ def safe_visible(locator, timeout=400):
     """Safely check if element is visible"""
     try:
         return locator.is_visible(timeout=timeout)
-    except:
+    except Exception:
         return False
 
 def safe_wait(locator, state="visible", timeout=5000):
@@ -466,5 +464,5 @@ def safe_wait(locator, state="visible", timeout=5000):
     try:
         locator.wait_for(state=state, timeout=timeout)
         return True
-    except:
+    except Exception:
         return False

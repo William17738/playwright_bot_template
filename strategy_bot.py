@@ -11,13 +11,8 @@ import random
 import os
 from playwright.sync_api import sync_playwright
 
-# Import core utilities
-from bot_core import *
-import proxy_helper
-
-# Setup logging
-sys.stdout = DualLogger("bot_log.txt")
-sys.stderr = sys.stdout
+# Note: bot_core/proxy_helper imports are intentionally done inside main()
+# after loading .env to keep imports side-effect free for test isolation.
 
 # ================= State Machine =================
 
@@ -177,6 +172,38 @@ def ensure_network_health():
 
 def main():
     """Main entry point"""
+    from dotenv import load_dotenv
+    load_dotenv()
+
+    global DualLogger
+    global RecoveryManager
+    global TARGET_URL
+    global check_remote_control
+    global get_wait_time
+    global human_delay
+    global is_login_required
+    global update_monitor
+    global wait_for_login
+    global proxy_helper
+
+    # Import core utilities after environment is loaded
+    from bot_core import (
+        DualLogger,
+        RecoveryManager,
+        TARGET_URL,
+        check_remote_control,
+        get_wait_time,
+        human_delay,
+        is_login_required,
+        update_monitor,
+        wait_for_login,
+    )
+    import proxy_helper
+
+    # Setup logging
+    sys.stdout = DualLogger("bot_log.txt")
+    sys.stderr = sys.stdout
+
     print("=" * 60)
     print("Strategy Bot - Starting")
     print("=" * 60)

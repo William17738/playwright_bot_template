@@ -22,7 +22,6 @@ from bot_core import (
     RecoveryManager,
     safe_click,
     wait_for_element_stable,
-    get_wait_time,
     human_delay,
 )
 
@@ -116,8 +115,6 @@ def action_go_to_forms(page: Page, recovery_manager: RecoveryManager = None) -> 
 
     except Exception as e:
         print(f"[Action Error] {e}")
-        if recovery_manager:
-            recovery_manager.record_error("ACTION_ERROR")
         return False
 
 
@@ -158,8 +155,6 @@ def action_submit_form(page: Page, recovery_manager: RecoveryManager = None) -> 
 
     except Exception as e:
         print(f"[Action Error] {e}")
-        if recovery_manager:
-            recovery_manager.record_error("ACTION_ERROR")
         return False
 
 
@@ -177,8 +172,6 @@ def action_go_home(page: Page, recovery_manager: RecoveryManager = None) -> bool
 
     except Exception as e:
         print(f"[Action Error] {e}")
-        if recovery_manager:
-            recovery_manager.record_error("ACTION_ERROR")
         return False
 
 
@@ -228,7 +221,7 @@ def run_strategy(page: Page, recovery_manager: RecoveryManager, logger: DualLogg
 
     # Step 4: Verify & report
     if success:
-        recovery_manager.reset_errors()
+        recovery_manager.reset_counters()
         logger.log("[Strategy] Action completed successfully")
     else:
         logger.log("[Strategy] Action failed")
@@ -242,6 +235,8 @@ def run_strategy(page: Page, recovery_manager: RecoveryManager, logger: DualLogg
 
 def main():
     """Demo entry point"""
+    from dotenv import load_dotenv
+    load_dotenv()
 
     print("=" * 60)
     print("Strategy Bot Template - Demo")
@@ -250,7 +245,7 @@ def main():
 
     # Initialize
     logger = DualLogger(LOG_FILE)
-    recovery_manager = RecoveryManager(logger)
+    recovery_manager = RecoveryManager()
 
     with sync_playwright() as p:
         # Launch browser (visible for demo)
@@ -277,7 +272,7 @@ def main():
                 run_strategy(page, recovery_manager, logger)
 
                 # Wait between cycles
-                wait_time = get_wait_time(min_wait=3, max_wait=8)
+                wait_time = random.uniform(3, 8)
                 logger.log(f"[Demo] Waiting {wait_time:.1f}s before next cycle...")
                 time.sleep(wait_time)
 
